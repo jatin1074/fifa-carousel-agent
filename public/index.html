@@ -271,7 +271,10 @@ async function searchPexels(query) {
     : `soccer football ${query}`;
   const res = await fetch(`/api/pexels?query=${encodeURIComponent(biasedQuery)}&orientation=portrait`);
   const data = await res.json();
-  return data.photos?.[0]?.src?.large2x || data.photos?.[0]?.src?.large || null;
+  const rawUrl = data.photos?.[0]?.src?.large2x || data.photos?.[0]?.src?.large || null;
+  if (!rawUrl) return null;
+  // Route through our own server so the image is same-origin (needed for canvas export/download)
+  return `/api/image-proxy?url=${encodeURIComponent(rawUrl)}`;
 }
 
 // ── Generate ──
@@ -368,8 +371,8 @@ Make exactly ${state.slideCount} slides.`
 // ── Render slides ──
 function renderSlideCard(slide, num, total) {
   return `
-    <div class="slide-card">
-      ${slide.imageUrl ? `<img class="slide-img" src="${slide.imageUrl}" alt="" onerror="this.style.display='none'" />` : ""}
+    <div class="slide-card" id="slideCardForExport">
+      ${slide.imageUrl ? `<img class="slide-img" src="${slide.imageUrl}" alt="" onerror="this.style.display='none'" crossorigin="anonymous" />` : ""}
       <div class="slide-overlay-dark"></div>
       <div class="slide-overlay-bottom"></div>
       <div class="slide-topbar">
@@ -386,6 +389,137 @@ function renderSlideCard(slide, num, total) {
   `;
 }
 
+// Draws a slide to an offscreen 1080x1350 canvas and returns a PNG data URL
+function renderSlideToCanvas(slide, num, total) {
+  return new Promise((resolve, reject) => {
+    const W = 1080, H = 1350;
+    const canvas = document.createElement("canvas");
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d");
+
+    function wrapText(text, font, maxWidth) {
+      ctx.font = font;
+      const words = text.split(" ");
+      const lines = [];
+      let line = "";
+      for (const word of words) {
+        const test = line + word + " ";
+        if (ctx.measureText(test).width > maxWidth && line !== "") {
+          lines.push(line.trim());
+          line = word + " ";
+        } else { line = test; }
+      }
+      if (line) lines.push(line.trim());
+      return lines;
+    }
+
+    function drawOverlaysAndText() {
+      // dark overlay
+      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.fillRect(0, 0, W, H);
+      // bottom gradient
+      const grad = ctx.createLinearGradient(0, H * 0.38, 0, H);
+      grad.addColorStop(0, "rgba(0,0,0,0)");
+      grad.addColorStop(0.45, "rgba(0,0,0,0.75)");
+      grad.addColorStop(1, "rgba(0,0,0,0.97)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, H * 0.38, W, H * 0.62);
+
+      // top bar
+      ctx.font = "bold 30px Arial, sans-serif";
+      ctx.fillStyle = "#ff7a00";
+      ctx.textAlign = "left";
+      ctx.fillText("⚽ FIFA 2026", 36, 56);
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.textAlign = "right";
+      ctx.fillText(`${num}/${total}`, W - 36, 56);
+      ctx.textAlign = "left";
+
+      // bottom text block — compute total height first to anchor near bottom
+      const padX = 36;
+      const maxW = W - padX * 2;
+      let blocks = [];
+      if (slide.eyebrow) {
+        const lines = wrapText(slide.eyebrow.toUpperCase(), "900 56px Arial, sans-serif", maxW);
+        blocks.push({ lines, font: "900 56px Arial, sans-serif", color: "#ff7a00", lineHeight: 60, marginBottom: 14 });
+      }
+      if (slide.headline) {
+        const lines = wrapText(slide.headline, "800 40px Arial, sans-serif", maxW);
+        blocks.push({ lines, font: "800 40px Arial, sans-serif", color: "#ffffff", lineHeight: 48, marginBottom: 14 });
+      }
+      if (slide.body) {
+        const lines = wrapText(slide.body, "400 28px Arial, sans-serif", maxW).slice(0, 4);
+        blocks.push({ lines, font: "400 28px Arial, sans-serif", color: "rgba(255,255,255,0.88)", lineHeight: 38, marginBottom: 0 });
+      }
+
+      let totalHeight = 0;
+      blocks.forEach(b => { totalHeight += b.lines.length * b.lineHeight + b.marginBottom; });
+
+      let cursorY = H - 50 - totalHeight + blocks[0]?.lineHeight * 0.7;
+      blocks.forEach(b => {
+        ctx.font = b.font;
+        ctx.fillStyle = b.color;
+        b.lines.forEach(line => {
+          ctx.fillText(line, padX, cursorY);
+          cursorY += b.lineHeight;
+        });
+        cursorY += b.marginBottom;
+      });
+
+      // bottom accent bar
+      ctx.fillStyle = "#ff7a00";
+      ctx.fillRect(0, H - 6, W, 6);
+
+      resolve(canvas.toDataURL("image/png"));
+    }
+
+    if (slide.imageUrl) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const ratio = Math.max(W / img.width, H / img.height);
+        const nw = img.width * ratio, nh = img.height * ratio;
+        ctx.drawImage(img, (W - nw) / 2, (H - nh) / 2, nw, nh);
+        drawOverlaysAndText();
+      };
+      img.onerror = () => {
+        const g = ctx.createLinearGradient(0, 0, W, H);
+        g.addColorStop(0, "#1a1a2e"); g.addColorStop(1, "#0d0d1a");
+        ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+        drawOverlaysAndText();
+      };
+      img.src = slide.imageUrl;
+    } else {
+      const g = ctx.createLinearGradient(0, 0, W, H);
+      g.addColorStop(0, "#1a1a2e"); g.addColorStop(1, "#0d0d1a");
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      drawOverlaysAndText();
+    }
+  });
+}
+
+async function downloadSlide(idx, btn) {
+  const originalText = btn.textContent;
+  btn.textContent = "Preparing…";
+  btn.disabled = true;
+  try {
+    const slide = state.slides[idx];
+    const dataUrl = await renderSlideToCanvas(slide, idx + 1, state.slides.length);
+    const link = document.createElement("a");
+    const safeName = (slide.headline || "slide").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+    link.download = `fifa2026-slide-${idx + 1}-${safeName}.png`;
+    link.href = dataUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    btn.textContent = "✓ Downloaded";
+  } catch (e) {
+    btn.textContent = "Failed — try again";
+    console.error(e);
+  }
+  setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+}
+
 function renderSlides() {
   const slidesBox = document.getElementById("slidesBox");
   const total = state.slides.length;
@@ -395,6 +529,7 @@ function renderSlides() {
     <div class="section">
       <div class="section-label">✅ YOUR CAROUSEL — ${total} SLIDES</div>
       <div style="margin-bottom:12px;">${renderSlideCard(state.slides[active], active + 1, total)}</div>
+      <button class="generate-btn" id="downloadBtn" style="margin-bottom:12px;">⬇ Download This Slide</button>
       <div class="dots">
         ${state.slides.map((_, i) => `<button class="dot ${i === active ? "active" : ""}" data-idx="${i}"></button>`).join("")}
       </div>
@@ -403,10 +538,13 @@ function renderSlides() {
         <button class="nav-btn" id="nextBtn" ${active === total - 1 ? "disabled" : ""}>Next →</button>
       </div>
       <div class="save-tip">
-        <strong>💾 Save each slide:</strong> Right-click (or press & hold on mobile) each slide → Save image. Save in order for the correct carousel sequence.
+        <strong>💾 Tip:</strong> Download each slide in order (1 to ${total}), then upload them as a carousel post in that same order on Instagram.
       </div>
     </div>
   `;
+
+  const downloadBtn = document.getElementById("downloadBtn");
+  if (downloadBtn) downloadBtn.onclick = () => downloadSlide(state.activeSlide, downloadBtn);
 
   slidesBox.querySelectorAll(".dot").forEach(dot => {
     dot.onclick = () => { state.activeSlide = parseInt(dot.dataset.idx); renderSlides(); };
@@ -483,4 +621,3 @@ function renderCaptions() {
 
 </body>
 </html>
-
