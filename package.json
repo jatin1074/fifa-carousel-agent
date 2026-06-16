@@ -1,0 +1,12 @@
+{
+  "name": "fifa-carousel-agent",
+  "version": "1.0.0",
+  "description": "FIFA 2026 Story Carousel Agent - standalone web app",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
