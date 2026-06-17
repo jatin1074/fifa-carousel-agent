@@ -265,13 +265,41 @@ async function callClaudeJSON(messages, useSearch, maxTokens) {
   return JSON.parse(text.slice(s, e + 1));
 }
 
+// Words that signal an irrelevant/off-brand photo for pro men's FIFA-style content
+const EXCLUDE_WORDS = ["kid", "child", "children", "boy", "girl", "youth", "school", "woman", "women", "female", "model", "fashion", "park", "backyard", "toddler", "baby", "family", "amateur"];
+
+// Track which Pexels photo IDs we've already used this session to avoid repeats
+const usedPhotoIds = new Set();
+
 async function searchPexels(query) {
   const biasedQuery = query.toLowerCase().includes("soccer") || query.toLowerCase().includes("football")
     ? query
-    : `soccer football ${query}`;
-  const res = await fetch(`/api/pexels?query=${encodeURIComponent(biasedQuery)}&orientation=portrait`);
+    : `professional soccer ${query}`;
+
+  // Pull from a random page (1-3) each time to widen the pool beyond the same top results
+  const page = Math.floor(Math.random() * 3) + 1;
+  const res = await fetch(`/api/pexels?query=${encodeURIComponent(biasedQuery)}&orientation=portrait&page=${page}`);
   const data = await res.json();
-  const rawUrl = data.photos?.[0]?.src?.large2x || data.photos?.[0]?.src?.large || null;
+  let photos = data.photos || [];
+
+  // Filter out photos whose alt text suggests kids/women/irrelevant content
+  const filtered = photos.filter(p => {
+    const alt = (p.alt || "").toLowerCase();
+    return !EXCLUDE_WORDS.some(w => alt.includes(w));
+  });
+
+  const pool = filtered.length > 0 ? filtered : photos;
+
+  // Prefer photos not already used in this carousel; fall back to any if pool is exhausted
+  const unused = pool.filter(p => !usedPhotoIds.has(p.id));
+  const candidates = unused.length > 0 ? unused : pool;
+
+  if (candidates.length === 0) return null;
+
+  const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+  usedPhotoIds.add(chosen.id);
+
+  const rawUrl = chosen.src?.large2x || chosen.src?.large || null;
   if (!rawUrl) return null;
   // Route through our own server so the image is same-origin (needed for canvas export/download)
   return `/api/image-proxy?url=${encodeURIComponent(rawUrl)}`;
