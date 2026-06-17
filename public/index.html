@@ -265,44 +265,132 @@ async function callClaudeJSON(messages, useSearch, maxTokens) {
   return JSON.parse(text.slice(s, e + 1));
 }
 
-// Words that signal an irrelevant/off-brand photo for pro men's FIFA-style content
-const EXCLUDE_WORDS = ["kid", "child", "children", "boy", "girl", "youth", "school", "woman", "women", "female", "model", "fashion", "park", "backyard", "toddler", "baby", "family", "amateur"];
+// ── Positive / Negative constraints (entity-driven filtering) ──
+const POSITIVE_HINTS = ["official", "match", "broadcast", "professional", "stadium", "championship", "tournament", "national team", "world cup"];
+const NEGATIVE_WORDS = ["kid", "child", "children", "boy", "girl", "youth", "school", "woman", "women", "female", "model", "fashion", "park", "backyard", "toddler", "baby", "family", "amateur", "training session", "fan", "supporter only", "logo only", "icon", "clipart", "cartoon", "drawing"];
 
-// Track which Pexels photo IDs we've already used this session to avoid repeats
+function textHasNegative(text) {
+  const t = (text || "").toLowerCase();
+  return NEGATIVE_WORDS.some(w => t.includes(w));
+}
+function positiveScore(text) {
+  const t = (text || "").toLowerCase();
+  return POSITIVE_HINTS.reduce((acc, w) => acc + (t.includes(w) ? 1 : 0), 0);
+}
+
+// Track which photo IDs we've already used this session to avoid repeats across the whole app session
 const usedPhotoIds = new Set();
 
-async function searchPexels(query) {
-  const biasedQuery = query.toLowerCase().includes("soccer") || query.toLowerCase().includes("football")
-    ? query
-    : `professional soccer ${query}`;
+// ── Entity Resolver: ask Claude to turn a vague topic/query into a structured entity ──
+async function resolveEntity(topic, slideContext) {
+  try {
+    const data = await callClaudeJSON([{
+      role: "user",
+      content: `You are an entity resolver for a FIFA World Cup 2026 content system. Given a topic and slide context, identify the structured entity being referenced.
 
-  // Pull from a random page (1-3) each time to widen the pool beyond the same top results
-  const page = Math.floor(Math.random() * 3) + 1;
-  const res = await fetch(`/api/pexels?query=${encodeURIComponent(biasedQuery)}&orientation=portrait&page=${page}`);
-  const data = await res.json();
-  let photos = data.photos || [];
+Topic: "${topic}"
+Slide context: "${slideContext}"
 
-  // Filter out photos whose alt text suggests kids/women/irrelevant content
-  const filtered = photos.filter(p => {
-    const alt = (p.alt || "").toLowerCase();
-    return !EXCLUDE_WORDS.some(w => alt.includes(w));
-  });
+Return ONLY raw JSON: {
+  "entityType": "player" | "stadium" | "club" | "national_team" | "generic_scene",
+  "entityName": "the specific real name if identifiable, else empty string",
+  "searchQueries": ["2-3 refined search query strings ordered best-first, using the real entity name when known, e.g. 'Kylian Mbappe France match action' or if no specific entity, a generic professional scene description"]
+}`
+    }], false, 400);
+    return data;
+  } catch (e) {
+    return { entityType: "generic_scene", entityName: "", searchQueries: [slideContext || topic] };
+  }
+}
 
-  const pool = filtered.length > 0 ? filtered : photos;
+// ── Heuristic reranking: score candidates by resolution, aspect ratio fit, and text relevance ──
+function rankCandidates(candidates, entity) {
+  return candidates
+    .map(c => {
+      let score = 0;
+      // Resolution quality
+      const pixels = (c.width || 0) * (c.height || 0);
+      if (pixels > 1_000_000) score += 3;
+      else if (pixels > 400_000) score += 1.5;
+      // Portrait-friendly aspect ratio (close to 4:5 or taller is good for our slide format)
+      if (c.width && c.height) {
+        const ratio = c.height / c.width;
+        if (ratio >= 1.0 && ratio <= 1.8) score += 2;
+        else if (ratio >= 0.8) score += 1;
+      }
+      // Entity name match in title/metadata
+      const titleLower = (c.title || "").toLowerCase();
+      if (entity.entityName && titleLower.includes(entity.entityName.toLowerCase())) score += 4;
+      // Positive/negative constraint scoring
+      score += positiveScore(c.title);
+      if (textHasNegative(c.title)) score -= 6;
+      // Source tier preference: Wikimedia/Google (real entities) ranked above generic stock
+      if (c.source === "wikimedia") score += 2;
+      if (c.source === "google") score += 1.5;
+      // Penalize already-used images so we get variety
+      if (usedPhotoIds.has(c.id)) score -= 10;
+      return { ...c, _score: score };
+    })
+    .sort((a, b) => b._score - a._score);
+}
 
-  // Prefer photos not already used in this carousel; fall back to any if pool is exhausted
-  const unused = pool.filter(p => !usedPhotoIds.has(p.id));
-  const candidates = unused.length > 0 ? unused : pool;
+async function fetchTier(endpoint, query, extraParams = "") {
+  try {
+    const res = await fetch(`${endpoint}?query=${encodeURIComponent(query)}${extraParams}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.results || [];
+  } catch (e) {
+    return [];
+  }
+}
 
-  if (candidates.length === 0) return null;
+// ── Asset Selection Layer: entity -> queries -> tiered source fallback -> filter -> rank -> pick ──
+async function selectImageForSlide(topic, slideContext) {
+  const entity = await resolveEntity(topic, slideContext);
+  const queries = entity.searchQueries && entity.searchQueries.length > 0 ? entity.searchQueries : [slideContext || topic];
 
-  const chosen = candidates[Math.floor(Math.random() * candidates.length)];
-  usedPhotoIds.add(chosen.id);
+  let allCandidates = [];
 
-  const rawUrl = chosen.src?.large2x || chosen.src?.large || null;
-  if (!rawUrl) return null;
-  // Route through our own server so the image is same-origin (needed for canvas export/download)
-  return `/api/image-proxy?url=${encodeURIComponent(rawUrl)}`;
+  // Tier 1: Wikimedia Commons (best for real named entities, freely licensed)
+  for (const q of queries.slice(0, 2)) {
+    const results = await fetchTier("/api/wikimedia", q);
+    allCandidates.push(...results);
+    if (allCandidates.length >= 8) break;
+  }
+
+  // Tier 2: Google Custom Search (restricted domains), only if Wikimedia pool is thin
+  if (allCandidates.filter(c => !textHasNegative(c.title)).length < 4) {
+    for (const q of queries.slice(0, 2)) {
+      const results = await fetchTier("/api/google-images", q);
+      allCandidates.push(...results);
+      if (allCandidates.length >= 12) break;
+    }
+  }
+
+  // Tier 3: Pexels (last-resort generic stock), only if still thin
+  if (allCandidates.filter(c => !textHasNegative(c.title)).length < 3) {
+    const genericQuery = entity.entityType === "generic_scene" ? (queries[0] || "professional football") : "professional soccer match stadium";
+    const page = Math.floor(Math.random() * 3) + 1;
+    const results = await fetchTier("/api/pexels", genericQuery, `&orientation=portrait&page=${page}`);
+    allCandidates.push(...results);
+  }
+
+  // Apply strict negative filtering first
+  const filtered = allCandidates.filter(c => !textHasNegative(c.title));
+  const pool = filtered.length > 0 ? filtered : allCandidates;
+
+  if (pool.length === 0) return null;
+
+  // Rank and pick the best
+  const ranked = rankCandidates(pool, entity);
+  const best = ranked[0];
+  if (!best) return null;
+
+  usedPhotoIds.add(best.id);
+
+  // Route through our own image proxy for same-origin canvas export
+  return `/api/image-proxy?url=${encodeURIComponent(best.url)}`;
 }
 
 // ── Generate ──
@@ -342,12 +430,12 @@ document.getElementById("generateBtn").onclick = async () => {
 
 Style reference: Each slide has a bold orange eyebrow/date line, a bold white headline, and 1-2 sentences of supporting body text below — like a viral business/sports news timeline carousel. Slide 1 should hook the reader. Last slide should have a payoff or call to action.
 
-For EACH slide also provide an "imageSearchQuery" — a GENERIC stock-photography-style scene description (2-4 words) that matches the mood, NOT a specific player or team name (stock photo libraries don't have real photos of named athletes or specific match moments). Think in terms of universal football scenes: "soccer player celebrating", "stadium crowd cheering", "football training session", "soccer ball goal net", "players shaking hands", "trophy lifting celebration", "soccer stadium lights", "fans cheering stadium". Match the query to what's happening emotionally in that slide (celebration, tension, triumph, defeat, crowd energy, etc.) rather than literal names.
+For EACH slide also provide an "imageSearchQuery" — describe what's happening in that slide, INCLUDING the real player/team/stadium name if the slide is specifically about them (e.g. "Kylian Mbappe France celebration", "Estadio Azteca Mexico City stadium"). If the slide is about a general moment with no specific named entity, describe the generic scene instead (e.g. "stadium crowd cheering", "trophy lifting celebration"). A downstream entity-resolution system will look up real photos when a name is given, so don't avoid real names — just be accurate.
 
 Return ONLY raw JSON:
 {
   "slides": [
-    {"eyebrow": "short date or stat tag", "headline": "bold headline 6-10 words", "body": "1-2 sentences of context", "imageSearchQuery": "generic scene description 2-4 words"}
+    {"eyebrow": "short date or stat tag", "headline": "bold headline 6-10 words", "body": "1-2 sentences of context", "imageSearchQuery": "what's happening, with real names when applicable"}
   ],
   "captions": [{"style":"Hype","text":"caption"},{"style":"Story","text":"caption"},{"style":"Question","text":"caption"}],
   "hashtags": ["#FIFA2026","#WorldCup2026","13 more"],
@@ -360,15 +448,16 @@ Make exactly ${state.slideCount} slides.`
     const rawSlides = storyData.slides || [];
     if (rawSlides.length === 0) throw new Error("No slides generated");
 
-    setSpinner("Finding real photos for each slide…");
+    setSpinner("Resolving entities and finding real photos…");
     const slidesWithImages = [];
     for (let i = 0; i < rawSlides.length; i++) {
-      setSpinner(`Finding photo ${i + 1}/${rawSlides.length}…`);
+      setSpinner(`Resolving entity & finding photo ${i + 1}/${rawSlides.length}…`);
       const s = rawSlides[i];
       let imageUrl = null;
       try {
-        imageUrl = await searchPexels(s.imageSearchQuery || topic);
-        if (!imageUrl) imageUrl = await searchPexels("football stadium");
+        const slideContext = s.imageSearchQuery || s.headline || topic;
+        imageUrl = await selectImageForSlide(topic, slideContext);
+        if (!imageUrl) imageUrl = await selectImageForSlide(topic, "professional football stadium");
       } catch (e) { imageUrl = null; }
       slidesWithImages.push({ ...s, imageUrl });
     }
