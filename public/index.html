@@ -130,6 +130,12 @@
   }
   .save-tip strong { color: #ff7a00; }
 
+  .disclaimer-box {
+    background: #2d1a06; border: 1px solid #ff9800; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 14px; font-size: 12px; color: #ffcc80; line-height: 1.6;
+  }
+  .disclaimer-box strong { color: #ffb300; }
+
   .caption-card {
     background: #141420; border: 1px solid #1e1e2e; border-radius: 10px;
     padding: 12px 14px; margin-bottom: 8px;
@@ -422,15 +428,47 @@ document.getElementById("generateBtn").onclick = async () => {
   }
 
   try {
-    setSpinner("Researching the story…");
+    setSpinner("Researching verified facts…");
 
+    // STEP 1: Strict research — extract only verifiable facts, no embellishment
+    const researchData = await callClaudeJSON([{
+      role: "user",
+      content: `You are a strict sports fact-checker researching FIFA World Cup 2026 content. Research this topic: "${topic}" (story angle: "${state.storyType.label}").
+
+Search the web and extract ONLY facts you can directly verify from search results. Do NOT infer, dramatize, or add plausible-sounding details that aren't explicitly stated in your sources (e.g. don't guess whether a goal was a header, a tap-in, or a strike unless a source says so explicitly; don't invent a location unless a source confirms it).
+
+Return ONLY raw JSON:
+{
+  "verifiedFacts": [
+    "fact 1, written plainly, with enough specificity to build a story (dates, scores, names, locations — only if confirmed by sources)",
+    "fact 2",
+    "... 5-10 facts total"
+  ],
+  "uncertainties": ["anything you found conflicting or unconfirmed information about, so it can be avoided in the final copy"],
+  "primarySubject": "the main real entity this story is about (player name, team name, or event name) if identifiable, else empty string"
+}`
+    }], true, 2000);
+
+    const verifiedFacts = researchData.verifiedFacts || [];
+    if (verifiedFacts.length === 0) {
+      throw new Error("Could not find verified facts for this topic. Try a more specific or well-known topic.");
+    }
+
+    setSpinner("Writing the carousel from verified facts…");
+
+    // STEP 2: Copywriting — strictly constrained to the verified facts from step 1
     const storyData = await callClaudeJSON([{
       role: "user",
-      content: `Research and write a ${state.slideCount}-slide Instagram carousel telling a "${state.storyType.label}" story about: "${topic}" for FIFA World Cup 2026.
+      content: `Write a ${state.slideCount}-slide Instagram carousel telling a "${state.storyType.label}" story for FIFA World Cup 2026, using ONLY the verified facts below. Do not add any detail, action, or specific (e.g. "header", a particular stadium, a particular city) that is not explicitly present in these facts.
 
-Style reference: Each slide has a bold orange eyebrow/date line, a bold white headline, and 1-2 sentences of supporting body text below — like a viral business/sports news timeline carousel. Slide 1 should hook the reader. Last slide should have a payoff or call to action.
+VERIFIED FACTS (use only these — do not embellish beyond them):
+${verifiedFacts.map((f, i) => `${i + 1}. ${f}`).join("\n")}
 
-For EACH slide also provide an "imageSearchQuery" — describe what's happening in that slide, INCLUDING the real player/team/stadium name if the slide is specifically about them (e.g. "Kylian Mbappe France celebration", "Estadio Azteca Mexico City stadium"). If the slide is about a general moment with no specific named entity, describe the generic scene instead (e.g. "stadium crowd cheering", "trophy lifting celebration"). A downstream entity-resolution system will look up real photos when a name is given, so don't avoid real names — just be accurate.
+${researchData.uncertainties?.length ? `AVOID mentioning (unconfirmed): ${researchData.uncertainties.join("; ")}` : ""}
+
+Style reference: Each slide has a bold orange eyebrow/date line, a bold white headline, and 1-2 sentences of supporting body text below — like a viral business/sports news timeline carousel. Slide 1 should hook the reader. Last slide should have a payoff or call to action. You may write punchy, energetic copy — but every concrete claim (scores, names, actions, places) must trace back to a verified fact above. If you don't have enough verified facts to fill ${state.slideCount} slides with specifics, it's fine for later slides to be more reflective/context-setting rather than inventing new specifics.
+
+For EACH slide also provide an "imageSearchQuery" — describe what's happening in that slide, INCLUDING the real player/team/stadium name if the slide is specifically about them and that name is in the verified facts (e.g. "Kylian Mbappe France celebration"). If the slide is about a general moment with no specific named entity, describe the generic scene instead (e.g. "stadium crowd cheering", "trophy lifting celebration").
 
 Return ONLY raw JSON:
 {
@@ -443,7 +481,7 @@ Return ONLY raw JSON:
   "engagementTip": "one specific tip"
 }
 Make exactly ${state.slideCount} slides.`
-    }], true, 3000);
+    }], false, 3000);
 
     const rawSlides = storyData.slides || [];
     if (rawSlides.length === 0) throw new Error("No slides generated");
@@ -645,6 +683,9 @@ function renderSlides() {
   slidesBox.innerHTML = `
     <div class="section">
       <div class="section-label">✅ YOUR CAROUSEL — ${total} SLIDES</div>
+      <div class="disclaimer-box">
+        ⚠️ <strong>AI-generated from web research.</strong> Verify scores, names, dates, and details against an official source before posting — content may contain errors or unverified specifics.
+      </div>
       <div style="margin-bottom:12px;">${renderSlideCard(state.slides[active], active + 1, total)}</div>
       <button class="generate-btn" id="downloadBtn" style="margin-bottom:12px;">⬇ Download This Slide</button>
       <div class="dots">
