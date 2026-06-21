@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FIFA 2026 Story Carousel Agent</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Inter', Arial, sans-serif;
+    background: #0a0a12;
+    color: #fff;
+    min-height: 100vh;
+  }
+  .app { max-width: 560px; margin: 0 auto; min-height: 100vh; }
+  .header {
+    background: linear-gradient(135deg, #0a0a12 0%, #1a0f00 100%);
+    padding: 24px 20px 20px;
+    border-bottom: 1px solid #ffffff10;
+  }
+  .header-inner { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: linear-gradient(135deg, #ff7a00, #ff3d00);
+    display: flex; align-items: center; justify-content: center; font-size: 22px;
+    flex-shrink: 0;
+  }
+  h1 { font-size: 20px; font-weight: 900; color: #fff; }
+  h1 span { color: #ff7a00; }
+  .subtitle { font-size: 11px; color: #666; letter-spacing: 0.08em; margin-top: 2px; }
+  .content { padding: 18px 16px; }
+  .section-label {
+    font-size: 11px; font-weight: 700; color: #666; letter-spacing: 0.08em; margin-bottom: 10px;
+  }
+  .section { margin-bottom: 18px; }
+
+  .story-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .story-btn {
+    padding: 10px 12px; border-radius: 10px; cursor: pointer; text-align: left;
+    border: 2px solid #1e1e2e; background: #141420; color: #888;
+    font-family: inherit; transition: all .15s;
+  }
+  .story-btn.active { border-color: #ff7a00; background: #2b1500; color: #ff7a00; }
+  .story-btn-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+  .story-btn-desc { font-size: 10px; color: #666; }
+
+  input[type=text] {
+    width: 100%; padding: 11px 14px; border-radius: 10px;
+    background: #141420; border: 1.5px solid #1e1e2e; color: #fff;
+    font-size: 13px; outline: none; font-family: inherit;
+  }
+  input[type=text]:focus { border-color: #ff7a00; }
+
+  .slide-count-row { display: flex; gap: 8px; }
+  .count-btn {
+    flex: 1; padding: 9px; border-radius: 8px; cursor: pointer;
+    border: 2px solid #1e1e2e; background: #141420; color: #888;
+    font-weight: 700; font-size: 13px; font-family: inherit;
+  }
+  .count-btn.active { border-color: #ff7a00; background: #2b1500; color: #ff7a00; }
+
+  .generate-btn {
+    width: 100%; padding: 14px; border: none; border-radius: 12px;
+    font-weight: 900; font-size: 15px; cursor: pointer; margin-bottom: 20px;
+    background: linear-gradient(135deg, #ff7a00, #ff3d00); color: #fff;
+    font-family: inherit;
+  }
+  .generate-btn:disabled { background: #1e1e2e; color: #555; cursor: default; }
+
+  .error-box {
+    background: #2d0e0e; border: 1px solid #c62828; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 16px; font-size: 12px; color: #ef9a9a;
+  }
+
+  .spinner-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 40px 0; }
+  .spinner {
+    width: 46px; height: 46px; border: 4px solid #1e1e2e; border-top: 4px solid #ff7a00;
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner-msg { font-size: 13px; color: #888; text-align: center; }
+
+  .slide-card {
+    position: relative; width: 100%; max-width: 380px; aspect-ratio: 1080/1350;
+    border-radius: 14px; overflow: hidden; border: 2px solid #222;
+    background: linear-gradient(135deg, #1a1a2e, #0d0d1a); margin: 0 auto;
+  }
+  .slide-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+  .slide-overlay-dark { position: absolute; inset: 0; z-index: 1; background: rgba(0,0,0,0.18); }
+  .slide-overlay-bottom {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 62%; z-index: 2;
+    background: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.75) 45%, rgba(0,0,0,0.97) 100%);
+  }
+  .slide-topbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 3;
+    display: flex; justify-content: space-between; align-items: center; padding: 16px 18px;
+  }
+  .slide-topbar span { text-shadow: 0 1px 4px rgba(0,0,0,0.6); font-weight: 700; font-size: 14px; }
+  .slide-text {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 0 18px 22px;
+  }
+  .slide-eyebrow {
+    color: #ff7a00; font-weight: 900; font-size: clamp(20px, 6.5vw, 28px);
+    line-height: 1.1; margin-bottom: 8px; text-transform: uppercase;
+  }
+  .slide-headline {
+    color: #fff; font-weight: 800; font-size: clamp(15px, 4.8vw, 19px);
+    line-height: 1.25; margin-bottom: 8px;
+  }
+  .slide-body {
+    color: rgba(255,255,255,0.88); font-weight: 400; font-size: clamp(11px, 3.4vw, 13px); line-height: 1.5;
+  }
+  .slide-accent { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: #ff7a00; z-index: 4; }
+
+  .dots { display: flex; justify-content: center; gap: 6px; margin: 12px 0 14px; }
+  .dot { width: 8px; height: 8px; border-radius: 4px; background: #333; border: none; cursor: pointer; transition: all .2s; }
+  .dot.active { width: 22px; background: #ff7a00; }
+
+  .nav-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .nav-btn {
+    flex: 1; padding: 10px; background: #141420; border: 1.5px solid #1e1e2e;
+    border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; color: #ff7a00;
+    font-family: inherit;
+  }
+  .nav-btn:disabled { color: #444; cursor: default; }
+
+  .save-tip {
+    background: #1a1206; border: 1px solid #ff7a0040; border-radius: 8px; padding: 10px 14px;
+    margin-bottom: 16px; font-size: 12px; color: #ffb066; line-height: 1.7;
+  }
+  .save-tip strong { color: #ff7a00; }
+
+  .disclaimer-box {
+    background: #2d1a06; border: 1px solid #ff9800; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 14px; font-size: 12px; color: #ffcc80; line-height: 1.6;
+  }
+  .disclaimer-box strong { color: #ffb300; }
+
+  .upload-box {
+    background: #141420; border: 1px dashed #ff7a0060; border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 12px;
+  }
+  .upload-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .upload-btn {
+    display: inline-block; padding: 8px 14px; background: #2b1500; color: #ff7a00;
+    border: 1.5px solid #ff7a0060; border-radius: 8px; font-size: 12px; font-weight: 700;
+    cursor: pointer; font-family: inherit;
+  }
+  .upload-btn:hover { background: #3a1d00; }
+  .clear-upload-btn {
+    padding: 8px 12px; background: transparent; color: #999; border: 1px solid #333;
+    border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  .upload-status { margin-top: 8px; font-size: 11px; color: #4caf50; font-weight: 600; }
+  .upload-status-muted { margin-top: 8px; font-size: 11px; color: #666; }
+  .dot-manual { box-shadow: 0 0 0 2px #ff7a00; }
+
+  .caption-card {
+    background: #141420; border: 1px solid #1e1e2e; border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 8px;
+  }
+  .caption-row { display: flex; justify-content: space-between; margin-bottom: 6px; align-items: center; }
+  .caption-style { font-size: 11px; font-weight: 700; color: #ff7a00; }
+  .copy-btn {
+    padding: 3px 10px; background: #0a0a12; color: #ff7a00; border: 1px solid #ff7a0040;
+    border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
+  }
+  .copy-btn.copied { background: #ff7a00; color: #0a0a12; }
+  .caption-text { font-size: 13px; color: #ccc; line-height: 1.6; }
+
+  .hashtag-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+  .hashtag {
+    background: #141420; color: #ff7a00; border: 1px solid #ff7a0020;
+    padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  }
+
+  .tip-row { display: flex; gap: 8px; }
+  .tip-box { background: #141420; border: 1px solid #1e1e2e; border-radius: 10px; padding: 12px 14px; }
+  .tip-box.time { flex: 1; }
+  .tip-box.engagement { flex: 2; }
+  .tip-label { font-size: 10px; font-weight: 700; margin-bottom: 4px; }
+  .tip-label.time-label { color: #ff7a00; }
+  .tip-label.engagement-label { color: #ff3d00; }
+  .tip-value { font-size: 12px; color: #ccc; }
+
+  .empty-state { text-align: center; padding: 20px 0; color: #333; font-size: 12px; }
+
+  .section-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="header">
+    <div class="header-inner">
+      <div class="logo">📖</div>
+      <div>
+        <h1>FIFA 2026 <span>Story Carousel</span></h1>
+        <div class="subtitle">TIMELINE STYLE · PHOTO + TEXT</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="content" id="content">
+
+    <div class="section">
+      <div class="section-label">STORY TYPE</div>
+      <div class="story-grid" id="storyTypeGrid"></div>
+    </div>
+
+    <div class="section">
+      <label class="section-label" style="display:block;">TOPIC</label>
+      <input type="text" id="topicInput" placeholder="e.g. Messi's final World Cup, Brazil's Group E run…" />
+    </div>
+
+    <div class="section">
+      <div class="section-label">NUMBER OF SLIDES</div>
+      <div class="slide-count-row" id="slideCountRow"></div>
+    </div>
+
+    <button class="generate-btn" id="generateBtn">📖 Generate Story Carousel</button>
+
+    <div id="errorBox"></div>
+    <div id="spinnerBox"></div>
+    <div id="slidesBox"></div>
+    <div id="captionBox"></div>
+    <div id="emptyState" class="empty-state">Pick a story type, enter a topic, and hit Generate</div>
+
+  </div>
+</div>
+
+<script>
+const STORY_TYPES = [
+  { id: "player", label: "Player Journey", icon: "🌟", desc: "Rise to stardom arc" },
+  { id: "match", label: "Match Recap", icon: "⚽", desc: "Build-up to the result" },
+  { id: "historic", label: "Historic Moment", icon: "🏆", desc: "A defining World Cup moment" },
+  { id: "team", label: "Team's Road", icon: "🚩", desc: "Journey through the tournament" },
+];
+const SLIDE_COUNTS = [4, 5];
+
+let state = {
+  storyType: STORY_TYPES[0],
+  slideCount: 5,
+  slides: [],
+  caption: null,
+  activeSlide: 0,
+  loading: false,
+};
+
+// ── Render story type buttons ──
+function renderStoryTypes() {
+  const grid = document.getElementById("storyTypeGrid");
+  grid.innerHTML = "";
+  STORY_TYPES.forEach(t => {
+    const btn = document.createElement("button");
+    btn.className = "story-btn" + (state.storyType.id === t.id ? " active" : "");
+    btn.innerHTML = `<div class="story-btn-title">${t.icon} ${t.label}</div><div class="story-btn-desc">${t.desc}</div>`;
+    btn.onclick = () => { state.storyType = t; renderStoryTypes(); };
+    grid.appendChild(btn);
+  });
+}
+
+function renderSlideCounts() {
+  const row = document.getElementById("slideCountRow");
+  row.innerHTML = "";
+  SLIDE_COUNTS.forEach(n => {
+    const btn = document.createElement("button");
+    btn.className = "count-btn" + (state.slideCount === n ? " active" : "");
+    btn.textContent = n + " slides";
+    btn.onclick = () => { state.slideCount = n; renderSlideCounts(); };
+    row.appendChild(btn);
+  });
+}
+
+renderStoryTypes();
+renderSlideCounts();
+
+// ── API helpers (call OUR OWN server, not external APIs directly) ──
+async function callClaudeJSON(messages, useSearch, maxTokens) {
+  const res = await fetch("/api/claude", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, useSearch, maxTokens: maxTokens || 2000 }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(typeof data.error === "string" ? data.error : data.error.message);
+  const text = data.content.filter(b => b.type === "text").map(b => b.text).join("");
+  const s = text.indexOf("{"); const e = text.lastIndexOf("}");
+  if (s === -1) throw new Error("No JSON found in response");
+  return JSON.parse(text.slice(s, e + 1));
+}
+
+// ── Positive / Negative constraints (entity-driven filtering) ──
+const POSITIVE_HINTS = ["official", "match", "broadcast", "professional", "stadium", "championship", "tournament", "national team", "world cup"];
+const NEGATIVE_WORDS = ["kid", "child", "children", "boy", "girl", "youth", "school", "woman", "women", "female", "model", "fashion", "park", "backyard", "toddler", "baby", "family", "amateur", "training session", "fan", "supporter only", "logo only", "icon", "clipart", "cartoon", "drawing"];
+
+function textHasNegative(text) {
+  const t = (text || "").toLowerCase();
+  return NEGATIVE_WORDS.some(w => t.includes(w));
+}
+function positiveScore(text) {
+  const t = (text || "").toLowerCase();
+  return POSITIVE_HINTS.reduce((acc, w) => acc + (t.includes(w) ? 1 : 0), 0);
+}
+
+// Track which photo IDs we've already used this session to avoid repeats across the whole app session
+const usedPhotoIds = new Set();
+
+// ── Entity Resolver: ask Claude to turn a vague topic/query into a structured entity ──
+async function resolveEntity(topic, slideContext) {
+  try {
+    const data = await callClaudeJSON([{
+      role: "user",
+      content: `You are an entity resolver for a FIFA World Cup 2026 content system. Given a topic and slide context, identify the structured entity being referenced.
+
+Topic: "${topic}"
+Slide context: "${slideContext}"
+
+Return ONLY raw JSON: {
+  "entityType": "player" | "stadium" | "club" | "national_team" | "generic_scene",
+  "entityName": "the specific real name if identifiable, else empty string",
+  "searchQueries": ["2-3 refined search query strings ordered best-first, using the real entity name when known, e.g. 'Kylian Mbappe France match action' or if no specific entity, a generic professional scene description"]
+}`
+    }], false, 400);
+    return data;
+  } catch (e) {
+    return { entityType: "generic_scene", entityName: "", searchQueries: [slideContext || topic] };
+  }
+}
+
+// ── Heuristic reranking: score candidates by resolution, aspect ratio fit, and text relevance ──
+function rankCandidates(candidates, entity) {
+  return candidates
+    .map(c => {
+      let score = 0;
+      // Resolution quality
+      const pixels = (c.width || 0) * (c.height || 0);
+      if (pixels > 1_000_000) score += 3;
+      else if (pixels > 400_000) score += 1.5;
+      // Portrait-friendly aspect ratio (close to 4:5 or taller is good for our slide format)
+      if (c.width && c.height) {
+        const ratio = c.height / c.width;
+        if (ratio >= 1.0 && ratio <= 1.8) score += 2;
+        else if (ratio >= 0.8) score += 1;
+      }
+      // Entity name match in title/metadata
+      const titleLower = (c.title || "").toLowerCase();
+      if (entity.entityName && titleLower.includes(entity.entityName.toLowerCase())) score += 4;
+      // Positive/negative constraint scoring
+      score += positiveScore(c.title);
+      if (textHasNegative(c.title)) score -= 6;
+      // Source tier preference: Wikimedia/Google (real entities) ranked above generic stock
+      if (c.source === "wikimedia") score += 2;
+      if (c.source === "google") score += 1.5;
+      // Penalize already-used images so we get variety
+      if (usedPhotoIds.has(c.id)) score -= 10;
+      return { ...c, _score: score };
+    })
+    .sort((a, b) => b._score - a._score);
+}
+
+async function fetchTier(endpoint, query, extraParams = "") {
+  try {
+    const res = await fetch(`${endpoint}?query=${encodeURIComponent(query)}${extraParams}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.results || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+// ── Asset Selection Layer: entity -> queries -> tiered source fallback -> filter -> rank -> pick ──
+async function selectImageForSlide(topic, slideContext) {
+  const entity = await resolveEntity(topic, slideContext);
+  const queries = entity.searchQueries && entity.searchQueries.length > 0 ? entity.searchQueries : [slideContext || topic];
+
+  let allCandidates = [];
+
+  // Tier 1: Wikimedia Commons (best for real named entities, freely licensed)
+  for (const q of queries.slice(0, 2)) {
+    const results = await fetchTier("/api/wikimedia", q);
+    allCandidates.push(...results);
+    if (allCandidates.length >= 8) break;
+  }
+
+  // Tier 2: Google Custom Search (restricted domains), only if Wikimedia pool is thin
+  if (allCandidates.filter(c => !textHasNegative(c.title)).length < 4) {
+    for (const q of queries.slice(0, 2)) {
+      const results = await fetchTier("/api/google-images", q);
+      allCandidates.push(...results);
+      if (allCandidates.length >= 12) break;
+    }
+  }
+
+  // Tier 3: Pexels (last-resort generic stock), only if still thin
+  if (allCandidates.filter(c => !textHasNegative(c.title)).length < 3) {
+    const genericQuery = entity.entityType === "generic_scene" ? (queries[0] || "professional football") : "professional soccer match stadium";
+    const page = Math.floor(Math.random() * 3) + 1;
+    const results = await fetchTier("/api/pexels", genericQuery, `&orientation=portrait&page=${page}`);
+    allCandidates.push(...results);
+  }
+
+  // Apply strict negative filtering first
+  const filtered = allCandidates.filter(c => !textHasNegative(c.title));
+  const pool = filtered.length > 0 ? filtered : allCandidates;
+
+  if (pool.length === 0) return null;
+
+  // Rank and pick the best
+  const ranked = rankCandidates(pool, entity);
+  const best = ranked[0];
+  if (!best) return null;
+
+  usedPhotoIds.add(best.id);
+
+  // Route through our own image proxy for same-origin canvas export
+  return `/api/image-proxy?url=${encodeURIComponent(best.url)}`;
+}
+
+// ── Generate ──
+document.getElementById("generateBtn").onclick = async () => {
+  const topic = document.getElementById("topicInput").value.trim();
+  const errorBox = document.getElementById("errorBox");
+  const spinnerBox = document.getElementById("spinnerBox");
+  const slidesBox = document.getElementById("slidesBox");
+  const captionBox = document.getElementById("captionBox");
+  const emptyState = document.getElementById("emptyState");
+  const generateBtn = document.getElementById("generateBtn");
+
+  errorBox.innerHTML = "";
+  slidesBox.innerHTML = "";
+  captionBox.innerHTML = "";
+  emptyState.style.display = "none";
+
+  if (!topic) {
+    errorBox.innerHTML = `<div class="error-box">⚠️ Please enter a topic.</div>`;
+    return;
+  }
+
+  state.loading = true;
+  generateBtn.disabled = true;
+  generateBtn.textContent = "Generating…";
+
+  function setSpinner(msg) {
+    spinnerBox.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><div class="spinner-msg">${msg}</div></div>`;
+  }
+
+  try {
+    setSpinner("Researching verified facts…");
+
+    // STEP 1: Strict research — extract only verifiable facts, no embellishment
+    const researchData = await callClaudeJSON([{
+      role: "user",
+      content: `You are a strict sports fact-checker researching FIFA World Cup 2026 content. Research this topic: "${topic}" (story angle: "${state.storyType.label}").
+
+Search the web and extract ONLY facts you can directly verify from search results. Do NOT infer, dramatize, or add plausible-sounding details that aren't explicitly stated in your sources (e.g. don't guess whether a goal was a header, a tap-in, or a strike unless a source says so explicitly; don't invent a location unless a source confirms it).
+
+Return ONLY raw JSON:
+{
+  "verifiedFacts": [
+    "fact 1, written plainly, with enough specificity to build a story (dates, scores, names, locations — only if confirmed by sources)",
+    "fact 2",
+    "... 5-10 facts total"
+  ],
+  "uncertainties": ["anything you found conflicting or unconfirmed information about, so it can be avoided in the final copy"],
+  "primarySubject": "the main real entity this story is about (player name, team name, or event name) if identifiable, else empty string"
+}`
+    }], true, 2000);
+
+    const verifiedFacts = researchData.verifiedFacts || [];
+    if (verifiedFacts.length === 0) {
+      throw new Error("Could not find verified facts for this topic. Try a more specific or well-known topic.");
+    }
+
+    setSpinner("Writing the carousel from verified facts…");
+
+    // STEP 2: Copywriting — strictly constrained to the verified facts from step 1
+    const storyData = await callClaudeJSON([{
+      role: "user",
+      content: `Write a ${state.slideCount}-slide Instagram carousel telling a "${state.storyType.label}" story for FIFA World Cup 2026, using ONLY the verified facts below. Do not add any detail, action, or specific (e.g. "header", a particular stadium, a particular city) that is not explicitly present in these facts.
+
+VERIFIED FACTS (use only these — do not embellish beyond them):
+${verifiedFacts.map((f, i) => `${i + 1}. ${f}`).join("\n")}
+
+${researchData.uncertainties?.length ? `AVOID mentioning (unconfirmed): ${researchData.uncertainties.join("; ")}` : ""}
+
+Style reference: Each slide has a bold orange eyebrow/date line, a bold white headline, and 1-2 sentences of supporting body text below — like a viral business/sports news timeline carousel. Slide 1 should hook the reader. Last slide should have a payoff or call to action. You may write punchy, energetic copy — but every concrete claim (scores, names, actions, places) must trace back to a verified fact above. If you don't have enough verified facts to fill ${state.slideCount} slides with specifics, it's fine for later slides to be more reflective/context-setting rather than inventing new specifics.
+
+For EACH slide also provide an "imageSearchQuery" — describe what's happening in that slide, INCLUDING the real player/team/stadium name if the slide is specifically about them and that name is in the verified facts (e.g. "Kylian Mbappe France celebration"). If the slide is about a general moment with no specific named entity, describe the generic scene instead (e.g. "stadium crowd cheering", "trophy lifting celebration").
+
+Return ONLY raw JSON:
+{
+  "slides": [
+    {"eyebrow": "short date or stat tag", "headline": "bold headline 6-10 words", "body": "1-2 sentences of context", "imageSearchQuery": "what's happening, with real names when applicable"}
+  ],
+  "captions": [{"style":"Hype","text":"caption"},{"style":"Story","text":"caption"},{"style":"Question","text":"caption"}],
+  "hashtags": ["#FIFA2026","#WorldCup2026","13 more"],
+  "bestTime": "best time to post",
+  "engagementTip": "one specific tip"
+}
+Make exactly ${state.slideCount} slides.`
+    }], false, 3000);
+
+    const rawSlides = storyData.slides || [];
+    if (rawSlides.length === 0) throw new Error("No slides generated");
+
+    setSpinner("Resolving entities and finding real photos…");
+    const slidesWithImages = [];
+    for (let i = 0; i < rawSlides.length; i++) {
+      setSpinner(`Resolving entity & finding photo ${i + 1}/${rawSlides.length}…`);
+      const s = rawSlides[i];
+      let imageUrl = null;
+      try {
+        const slideContext = s.imageSearchQuery || s.headline || topic;
+        imageUrl = await selectImageForSlide(topic, slideContext);
+        if (!imageUrl) imageUrl = await selectImageForSlide(topic, "professional football stadium");
+      } catch (e) { imageUrl = null; }
+      slidesWithImages.push({ ...s, imageUrl, imageSource: imageUrl ? "auto" : null });
+    }
+
+    state.slides = slidesWithImages;
+    state.caption = {
+      captions: storyData.captions || [],
+      hashtags: storyData.hashtags || [],
+      bestTime: storyData.bestTime,
+      engagementTip: storyData.engagementTip,
+    };
+    state.activeSlide = 0;
+
+    spinnerBox.innerHTML = "";
+    renderSlides();
+    renderCaptions();
+
+  } catch (e) {
+    errorBox.innerHTML = `<div class="error-box">⚠️ ${e.message}</div>`;
+  }
+
+  state.loading = false;
+  generateBtn.disabled = false;
+  generateBtn.textContent = "📖 Generate Story Carousel";
+  spinnerBox.innerHTML = "";
+};
+
+// ── Render slides ──
+function renderSlideCard(slide, num, total) {
+  const isDataUrl = slide.imageUrl && slide.imageUrl.startsWith("data:");
+  return `
+    <div class="slide-card" id="slideCardForExport">
+      ${slide.imageUrl ? `<img class="slide-img" src="${slide.imageUrl}" alt="" onerror="this.style.display='none'" ${isDataUrl ? "" : 'crossorigin="anonymous"'} />` : ""}
+      <div class="slide-overlay-dark"></div>
+      <div class="slide-overlay-bottom"></div>
+      <div class="slide-topbar">
+        <span style="color:#ff7a00;">⚽ FIFA 2026</span>
+        <span style="color:rgba(255,255,255,0.9);">${num}/${total}</span>
+      </div>
+      <div class="slide-text">
+        ${slide.eyebrow ? `<div class="slide-eyebrow">${slide.eyebrow}</div>` : ""}
+        ${slide.headline ? `<div class="slide-headline">${slide.headline}</div>` : ""}
+        ${slide.body ? `<div class="slide-body">${slide.body}</div>` : ""}
+      </div>
+      <div class="slide-accent"></div>
+    </div>
+  `;
+}
+
+// Draws a slide to an offscreen 1080x1350 canvas and returns a PNG data URL
+function renderSlideToCanvas(slide, num, total) {
+  return new Promise((resolve, reject) => {
+    const W = 1080, H = 1350;
+    const canvas = document.createElement("canvas");
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d");
+
+    function wrapText(text, font, maxWidth) {
+      ctx.font = font;
+      const words = text.split(" ");
+      const lines = [];
+      let line = "";
+      for (const word of words) {
+        const test = line + word + " ";
+        if (ctx.measureText(test).width > maxWidth && line !== "") {
+          lines.push(line.trim());
+          line = word + " ";
+        } else { line = test; }
+      }
+      if (line) lines.push(line.trim());
+      return lines;
+    }
+
+    function drawOverlaysAndText() {
+      // dark overlay
+      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.fillRect(0, 0, W, H);
+      // bottom gradient
+      const grad = ctx.createLinearGradient(0, H * 0.38, 0, H);
+      grad.addColorStop(0, "rgba(0,0,0,0)");
+      grad.addColorStop(0.45, "rgba(0,0,0,0.75)");
+      grad.addColorStop(1, "rgba(0,0,0,0.97)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, H * 0.38, W, H * 0.62);
+
+      // top bar
+      ctx.font = "bold 30px Arial, sans-serif";
+      ctx.fillStyle = "#ff7a00";
+      ctx.textAlign = "left";
+      ctx.fillText("⚽ FIFA 2026", 36, 56);
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.textAlign = "right";
+      ctx.fillText(`${num}/${total}`, W - 36, 56);
+      ctx.textAlign = "left";
+
+      // bottom text block — compute total height first to anchor near bottom
+      const padX = 36;
+      const maxW = W - padX * 2;
+      let blocks = [];
+      if (slide.eyebrow) {
+        const lines = wrapText(slide.eyebrow.toUpperCase(), "900 56px Arial, sans-serif", maxW);
+        blocks.push({ lines, font: "900 56px Arial, sans-serif", color: "#ff7a00", lineHeight: 60, marginBottom: 14 });
+      }
+      if (slide.headline) {
+        const lines = wrapText(slide.headline, "800 40px Arial, sans-serif", maxW);
+        blocks.push({ lines, font: "800 40px Arial, sans-serif", color: "#ffffff", lineHeight: 48, marginBottom: 14 });
+      }
+      if (slide.body) {
+        const lines = wrapText(slide.body, "400 28px Arial, sans-serif", maxW).slice(0, 4);
+        blocks.push({ lines, font: "400 28px Arial, sans-serif", color: "rgba(255,255,255,0.88)", lineHeight: 38, marginBottom: 0 });
+      }
+
+      let totalHeight = 0;
+      blocks.forEach(b => { totalHeight += b.lines.length * b.lineHeight + b.marginBottom; });
+
+      let cursorY = H - 50 - totalHeight + blocks[0]?.lineHeight * 0.7;
+      blocks.forEach(b => {
+        ctx.font = b.font;
+        ctx.fillStyle = b.color;
+        b.lines.forEach(line => {
+          ctx.fillText(line, padX, cursorY);
+          cursorY += b.lineHeight;
+        });
+        cursorY += b.marginBottom;
+      });
+
+      // bottom accent bar
+      ctx.fillStyle = "#ff7a00";
+      ctx.fillRect(0, H - 6, W, 6);
+
+      resolve(canvas.toDataURL("image/png"));
+    }
+
+    if (slide.imageUrl) {
+      const img = new Image();
+      if (!slide.imageUrl.startsWith("data:")) {
+        img.crossOrigin = "anonymous";
+      }
+      img.onload = () => {
+        const ratio = Math.max(W / img.width, H / img.height);
+        const nw = img.width * ratio, nh = img.height * ratio;
+        ctx.drawImage(img, (W - nw) / 2, (H - nh) / 2, nw, nh);
+        drawOverlaysAndText();
+      };
+      img.onerror = () => {
+        const g = ctx.createLinearGradient(0, 0, W, H);
+        g.addColorStop(0, "#1a1a2e"); g.addColorStop(1, "#0d0d1a");
+        ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+        drawOverlaysAndText();
+      };
+      img.src = slide.imageUrl;
+    } else {
+      const g = ctx.createLinearGradient(0, 0, W, H);
+      g.addColorStop(0, "#1a1a2e"); g.addColorStop(1, "#0d0d1a");
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      drawOverlaysAndText();
+    }
+  });
+}
+
+async function downloadSlide(idx, btn) {
+  const originalText = btn.textContent;
+  btn.textContent = "Preparing…";
+  btn.disabled = true;
+  try {
+    const slide = state.slides[idx];
+    const dataUrl = await renderSlideToCanvas(slide, idx + 1, state.slides.length);
+    const link = document.createElement("a");
+    const safeName = (slide.headline || "slide").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+    link.download = `fifa2026-slide-${idx + 1}-${safeName}.png`;
+    link.href = dataUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    btn.textContent = "✓ Downloaded";
+  } catch (e) {
+    btn.textContent = "Failed — try again";
+    console.error(e);
+  }
+  setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleSlideUpload(idx, fileInput) {
+  const file = fileInput.files?.[0];
+  if (!file) return;
+  if (!file.type.startsWith("image/")) {
+    alert("Please choose an image file.");
+    return;
+  }
+  const dataUrl = await fileToDataUrl(file);
+  state.slides[idx].imageUrl = dataUrl;
+  state.slides[idx].imageSource = "manual";
+  renderSlides();
+}
+
+function clearSlideUpload(idx) {
+  state.slides[idx].imageUrl = null;
+  state.slides[idx].imageSource = null;
+  renderSlides();
+}
+
+function renderSlides() {
+  const slidesBox = document.getElementById("slidesBox");
+  const total = state.slides.length;
+  const active = state.activeSlide;
+  const activeSlideData = state.slides[active];
+  const isManual = activeSlideData.imageSource === "manual";
+
+  slidesBox.innerHTML = `
+    <div class="section">
+      <div class="section-label">✅ YOUR CAROUSEL — ${total} SLIDES</div>
+      <div class="disclaimer-box">
+        ⚠️ <strong>AI-generated from web research.</strong> Verify scores, names, dates, and details against an official source before posting — content may contain errors or unverified specifics.
+      </div>
+      <div style="margin-bottom:12px;">${renderSlideCard(activeSlideData, active + 1, total)}</div>
+
+      <div class="upload-box">
+        <div class="upload-row">
+          <label class="upload-btn" for="slideUploadInput">
+            📷 ${isManual ? "Replace Photo" : "Use My Own Photo for This Slide"}
+          </label>
+          <input type="file" id="slideUploadInput" accept="image/*" style="display:none;" />
+          ${isManual ? `<button class="clear-upload-btn" id="clearUploadBtn">✕ Remove, use auto-search</button>` : ""}
+        </div>
+        ${isManual ? `<div class="upload-status">✓ Using your uploaded photo for slide ${active + 1}</div>` : `<div class="upload-status-muted">Currently using auto-searched photo</div>`}
+      </div>
+
+      <button class="generate-btn" id="downloadBtn" style="margin-bottom:12px;">⬇ Download This Slide</button>
+      <div class="dots">
+        ${state.slides.map((s, i) => `<button class="dot ${i === active ? "active" : ""} ${s.imageSource === "manual" ? "dot-manual" : ""}" data-idx="${i}"></button>`).join("")}
+      </div>
+      <div class="nav-row">
+        <button class="nav-btn" id="prevBtn" ${active === 0 ? "disabled" : ""}>← Prev</button>
+        <button class="nav-btn" id="nextBtn" ${active === total - 1 ? "disabled" : ""}>Next →</button>
+      </div>
+      <div class="save-tip">
+        <strong>💾 Tip:</strong> Download each slide in order (1 to ${total}), then upload them as a carousel post in that same order on Instagram. Dots with an orange ring have your own uploaded photo.
+      </div>
+    </div>
+  `;
+
+  const downloadBtn = document.getElementById("downloadBtn");
+  if (downloadBtn) downloadBtn.onclick = () => downloadSlide(state.activeSlide, downloadBtn);
+
+  const uploadInput = document.getElementById("slideUploadInput");
+  if (uploadInput) uploadInput.onchange = () => handleSlideUpload(active, uploadInput);
+
+  const clearUploadBtn = document.getElementById("clearUploadBtn");
+  if (clearUploadBtn) clearUploadBtn.onclick = () => clearSlideUpload(active);
+
+  slidesBox.querySelectorAll(".dot").forEach(dot => {
+    dot.onclick = () => { state.activeSlide = parseInt(dot.dataset.idx); renderSlides(); };
+  });
+  const prevBtn = document.getElementById("prevBtn");
+  const nextBtn = document.getElementById("nextBtn");
+  if (prevBtn) prevBtn.onclick = () => { state.activeSlide = Math.max(0, state.activeSlide - 1); renderSlides(); };
+  if (nextBtn) nextBtn.onclick = () => { state.activeSlide = Math.min(total - 1, state.activeSlide + 1); renderSlides(); };
+}
+
+// ── Render caption kit ──
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text);
+  const original = btn.textContent;
+  btn.textContent = "✓";
+  btn.classList.add("copied");
+  setTimeout(() => { btn.textContent = original; btn.classList.remove("copied"); }, 1800);
+}
+
+function renderCaptions() {
+  const captionBox = document.getElementById("captionBox");
+  const c = state.caption;
+  if (!c) return;
+
+  const captionsHtml = (c.captions || []).map((cap, i) => `
+    <div class="caption-card">
+      <div class="caption-row">
+        <span class="caption-style">${cap.style}</span>
+        <button class="copy-btn" data-text="${encodeURIComponent(cap.text)}">Copy</button>
+      </div>
+      <div class="caption-text">${cap.text}</div>
+    </div>
+  `).join("");
+
+  const hashtagsHtml = (c.hashtags || []).map(tag => `<span class="hashtag">${tag}</span>`).join("");
+
+  captionBox.innerHTML = `
+    <div class="section">
+      <div class="section-header-row">
+        <div class="section-label" style="margin:0;">CAPTIONS</div>
+        <button class="copy-btn" id="copyBestBtn">Copy Best</button>
+      </div>
+      ${captionsHtml}
+    </div>
+    <div class="section">
+      <div class="section-header-row">
+        <div class="section-label" style="margin:0;">HASHTAGS</div>
+        <button class="copy-btn" id="copyAllTagsBtn">Copy All</button>
+      </div>
+      <div class="hashtag-wrap">${hashtagsHtml}</div>
+    </div>
+    <div class="tip-row">
+      ${c.bestTime ? `<div class="tip-box time"><div class="tip-label time-label">⏰ BEST TIME</div><div class="tip-value">${c.bestTime}</div></div>` : ""}
+      ${c.engagementTip ? `<div class="tip-box engagement"><div class="tip-label engagement-label">💡 TIP</div><div class="tip-value">${c.engagementTip}</div></div>` : ""}
+    </div>
+  `;
+
+  captionBox.querySelectorAll(".copy-btn[data-text]").forEach(btn => {
+    btn.onclick = () => copyText(decodeURIComponent(btn.dataset.text), btn);
+  });
+  const copyBestBtn = document.getElementById("copyBestBtn");
+  if (copyBestBtn) {
+    copyBestBtn.onclick = () => {
+      const text = (c.captions[0]?.text || "") + "\n\n" + (c.hashtags || []).join(" ");
+      copyText(text, copyBestBtn);
+    };
+  }
+  const copyAllTagsBtn = document.getElementById("copyAllTagsBtn");
+  if (copyAllTagsBtn) {
+    copyAllTagsBtn.onclick = () => copyText((c.hashtags || []).join(" "), copyAllTagsBtn);
+  }
+}
+</script>
+
+</body>
+</html>
