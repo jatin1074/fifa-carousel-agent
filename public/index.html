@@ -697,26 +697,54 @@ async function downloadSlide(idx, btn) {
   setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
 }
 
-function fileToDataUrl(file) {
+function fileToDataUrl(file, maxDim = 1600) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error("Could not read file"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Could not decode image"));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.9));
+      };
+      img.src = reader.result;
+    };
     reader.readAsDataURL(file);
   });
 }
 
 async function handleSlideUpload(idx, fileInput) {
-  const file = fileInput.files?.[0];
+  const file = fileInput.files && fileInput.files[0];
   if (!file) return;
   if (!file.type.startsWith("image/")) {
     alert("Please choose an image file.");
+    fileInput.value = "";
     return;
   }
-  const dataUrl = await fileToDataUrl(file);
-  state.slides[idx].imageUrl = dataUrl;
-  state.slides[idx].imageSource = "manual";
-  renderSlides();
+  try {
+    const dataUrl = await fileToDataUrl(file);
+    state.slides[idx].imageUrl = dataUrl;
+    state.slides[idx].imageSource = "manual";
+  } catch (e) {
+    alert("Could not load that image. Please try a different file.");
+  } finally {
+    // Reset so selecting the same file again still fires a change event next time
+    fileInput.value = "";
+    // Defer re-render to the next tick so the browser fully finishes the file-input's
+    // own change-event lifecycle before we tear down and rebuild the DOM under it
+    setTimeout(() => renderSlides(), 0);
+  }
 }
 
 function clearSlideUpload(idx) {
@@ -769,7 +797,14 @@ function renderSlides() {
   if (downloadBtn) downloadBtn.onclick = () => downloadSlide(state.activeSlide, downloadBtn);
 
   const uploadInput = document.getElementById("slideUploadInput");
-  if (uploadInput) uploadInput.onchange = () => handleSlideUpload(active, uploadInput);
+  const uploadLabel = slidesBox.querySelector(".upload-btn");
+  if (uploadInput) {
+    uploadInput.onchange = () => {
+      if (uploadLabel) uploadLabel.textContent = "⏳ Preparing photo…";
+      uploadInput.disabled = true;
+      handleSlideUpload(active, uploadInput);
+    };
+  }
 
   const clearUploadBtn = document.getElementById("clearUploadBtn");
   if (clearUploadBtn) clearUploadBtn.onclick = () => clearSlideUpload(active);
