@@ -136,6 +136,25 @@
   }
   .disclaimer-box strong { color: #ffb300; }
 
+  .upload-box {
+    background: #141420; border: 1px dashed #ff7a0060; border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 12px;
+  }
+  .upload-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .upload-btn {
+    display: inline-block; padding: 8px 14px; background: #2b1500; color: #ff7a00;
+    border: 1.5px solid #ff7a0060; border-radius: 8px; font-size: 12px; font-weight: 700;
+    cursor: pointer; font-family: inherit;
+  }
+  .upload-btn:hover { background: #3a1d00; }
+  .clear-upload-btn {
+    padding: 8px 12px; background: transparent; color: #999; border: 1px solid #333;
+    border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  .upload-status { margin-top: 8px; font-size: 11px; color: #4caf50; font-weight: 600; }
+  .upload-status-muted { margin-top: 8px; font-size: 11px; color: #666; }
+  .dot-manual { box-shadow: 0 0 0 2px #ff7a00; }
+
   .caption-card {
     background: #141420; border: 1px solid #1e1e2e; border-radius: 10px;
     padding: 12px 14px; margin-bottom: 8px;
@@ -497,7 +516,7 @@ Make exactly ${state.slideCount} slides.`
         imageUrl = await selectImageForSlide(topic, slideContext);
         if (!imageUrl) imageUrl = await selectImageForSlide(topic, "professional football stadium");
       } catch (e) { imageUrl = null; }
-      slidesWithImages.push({ ...s, imageUrl });
+      slidesWithImages.push({ ...s, imageUrl, imageSource: imageUrl ? "auto" : null });
     }
 
     state.slides = slidesWithImages;
@@ -525,9 +544,10 @@ Make exactly ${state.slideCount} slides.`
 
 // ── Render slides ──
 function renderSlideCard(slide, num, total) {
+  const isDataUrl = slide.imageUrl && slide.imageUrl.startsWith("data:");
   return `
     <div class="slide-card" id="slideCardForExport">
-      ${slide.imageUrl ? `<img class="slide-img" src="${slide.imageUrl}" alt="" onerror="this.style.display='none'" crossorigin="anonymous" />` : ""}
+      ${slide.imageUrl ? `<img class="slide-img" src="${slide.imageUrl}" alt="" onerror="this.style.display='none'" ${isDataUrl ? "" : 'crossorigin="anonymous"'} />` : ""}
       <div class="slide-overlay-dark"></div>
       <div class="slide-overlay-bottom"></div>
       <div class="slide-topbar">
@@ -630,7 +650,9 @@ function renderSlideToCanvas(slide, num, total) {
 
     if (slide.imageUrl) {
       const img = new Image();
-      img.crossOrigin = "anonymous";
+      if (!slide.imageUrl.startsWith("data:")) {
+        img.crossOrigin = "anonymous";
+      }
       img.onload = () => {
         const ratio = Math.max(W / img.width, H / img.height);
         const nw = img.width * ratio, nh = img.height * ratio;
@@ -675,10 +697,40 @@ async function downloadSlide(idx, btn) {
   setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
 }
 
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleSlideUpload(idx, fileInput) {
+  const file = fileInput.files?.[0];
+  if (!file) return;
+  if (!file.type.startsWith("image/")) {
+    alert("Please choose an image file.");
+    return;
+  }
+  const dataUrl = await fileToDataUrl(file);
+  state.slides[idx].imageUrl = dataUrl;
+  state.slides[idx].imageSource = "manual";
+  renderSlides();
+}
+
+function clearSlideUpload(idx) {
+  state.slides[idx].imageUrl = null;
+  state.slides[idx].imageSource = null;
+  renderSlides();
+}
+
 function renderSlides() {
   const slidesBox = document.getElementById("slidesBox");
   const total = state.slides.length;
   const active = state.activeSlide;
+  const activeSlideData = state.slides[active];
+  const isManual = activeSlideData.imageSource === "manual";
 
   slidesBox.innerHTML = `
     <div class="section">
@@ -686,23 +738,41 @@ function renderSlides() {
       <div class="disclaimer-box">
         ⚠️ <strong>AI-generated from web research.</strong> Verify scores, names, dates, and details against an official source before posting — content may contain errors or unverified specifics.
       </div>
-      <div style="margin-bottom:12px;">${renderSlideCard(state.slides[active], active + 1, total)}</div>
+      <div style="margin-bottom:12px;">${renderSlideCard(activeSlideData, active + 1, total)}</div>
+
+      <div class="upload-box">
+        <div class="upload-row">
+          <label class="upload-btn" for="slideUploadInput">
+            📷 ${isManual ? "Replace Photo" : "Use My Own Photo for This Slide"}
+          </label>
+          <input type="file" id="slideUploadInput" accept="image/*" style="display:none;" />
+          ${isManual ? `<button class="clear-upload-btn" id="clearUploadBtn">✕ Remove, use auto-search</button>` : ""}
+        </div>
+        ${isManual ? `<div class="upload-status">✓ Using your uploaded photo for slide ${active + 1}</div>` : `<div class="upload-status-muted">Currently using auto-searched photo</div>`}
+      </div>
+
       <button class="generate-btn" id="downloadBtn" style="margin-bottom:12px;">⬇ Download This Slide</button>
       <div class="dots">
-        ${state.slides.map((_, i) => `<button class="dot ${i === active ? "active" : ""}" data-idx="${i}"></button>`).join("")}
+        ${state.slides.map((s, i) => `<button class="dot ${i === active ? "active" : ""} ${s.imageSource === "manual" ? "dot-manual" : ""}" data-idx="${i}"></button>`).join("")}
       </div>
       <div class="nav-row">
         <button class="nav-btn" id="prevBtn" ${active === 0 ? "disabled" : ""}>← Prev</button>
         <button class="nav-btn" id="nextBtn" ${active === total - 1 ? "disabled" : ""}>Next →</button>
       </div>
       <div class="save-tip">
-        <strong>💾 Tip:</strong> Download each slide in order (1 to ${total}), then upload them as a carousel post in that same order on Instagram.
+        <strong>💾 Tip:</strong> Download each slide in order (1 to ${total}), then upload them as a carousel post in that same order on Instagram. Dots with an orange ring have your own uploaded photo.
       </div>
     </div>
   `;
 
   const downloadBtn = document.getElementById("downloadBtn");
   if (downloadBtn) downloadBtn.onclick = () => downloadSlide(state.activeSlide, downloadBtn);
+
+  const uploadInput = document.getElementById("slideUploadInput");
+  if (uploadInput) uploadInput.onchange = () => handleSlideUpload(active, uploadInput);
+
+  const clearUploadBtn = document.getElementById("clearUploadBtn");
+  if (clearUploadBtn) clearUploadBtn.onclick = () => clearSlideUpload(active);
 
   slidesBox.querySelectorAll(".dot").forEach(dot => {
     dot.onclick = () => { state.activeSlide = parseInt(dot.dataset.idx); renderSlides(); };
